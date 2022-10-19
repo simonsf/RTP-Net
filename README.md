@@ -24,7 +24,7 @@ Inference
 
 Data 
 
-We have released the anonymized data with annotations of 5 regions.
+We have released 50 anonymized data with annotations of CTV and PTV for rectum cancer patients.
 
 AI inference application
 
