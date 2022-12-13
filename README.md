@@ -5,6 +5,7 @@ RTP-Net (v1.0)
 Introduction
 
 This repository is for the proposed RTP-Net used for AI-assisted contouring in radiotherapy. Please refer to the below paper for the detailed description. 
+
 Shi, F., Hu, W., Wu, J. et al. Deep learning empowered volume delineation of whole-body organs-at-risk for accelerated radiotherapy. Nat Commun 13, 6566 (2022). https://doi.org/10.1038/s41467-022-34257-x
 
 Installation
