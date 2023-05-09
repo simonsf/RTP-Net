@@ -1,3 +1,4 @@
+# -*- coding:utf-8 -*-
 import os
 import csv
 import numpy as np
@@ -6,6 +7,8 @@ from torch.utils.data import Dataset
 import random
 import codecs
 import SimpleITK as sitk
+from utils.tools import *
+from utils.Normalizer import *
 
 def readlines(file):
     """
@@ -63,41 +66,18 @@ def read_train_csv(csv_file):
             seg_list.append(line[-1])
     return im_list, seg_list
 
-def fix_normalizers(image, mean, stddev, clip=True):
-    data = image
-    if clip:
-        return np.clip((data - mean) / (stddev + 1e-8) , -1, 1).astype(np.float32)
-    else:
-        return ((data - mean) / (stddev + 1e-8)).astype(np.float32)
-
-def adaptive_normalizers(image, min_p, max_p, clip=True):
-    data = image
-    upper = np.percentile(data, max_p*100)
-    lower = np.percentile(data, min_p*100)
-    mean = (lower + upper) / 2.0
-    stddev = abs((upper - lower)) / 2.0
-    if clip:
-        return np.clip((image - mean) / (stddev + 1e-8), -1, 1).astype(np.float32)
-    else:
-        return (image - mean) / (stddev + 1e-8).astype(np.float32)
 
 def resize_image_itk(ori_img, target_Size, target_Spacing, resamplemethod=sitk.sitkNearestNeighbor, pixel_type=sitk.sitkFloat32):
-    """
-    用itk方法将原始图像resample到与目标图像一致
-    :param ori_img: 原始需要对齐的itk图像
-    :param resamplemethod: itk插值方法: sitk.sitkLinear-线性  sitk.sitkNearestNeighbor-最近邻
-    :return:img_res_itk: 重采样好的itk图像
-    """
     # target_Size = target_img.GetSize()      # 目标图像大小  [x,y,z]
     # target_Spacing = target_img.GetSpacing()   # 目标的体素块尺寸    [x,y,z]
-    target_origin = ori_img.GetOrigin()      # 目标的起点 [x,y,z]
-    target_direction = ori_img.GetDirection()  # 目标的方向 [冠,矢,横]=[z,y,x]
+    target_origin = ori_img.GetOrigin()      # 目标的起�?[x,y,z]
+    target_direction = ori_img.GetDirection()  # 目标的方�?[�?�?横]=[z,y,x]
 
 
     # itk的方法进行resample
     resampler = sitk.ResampleImageFilter()
     resampler.SetReferenceImage(ori_img)  # 需要重新采样的目标图像
-    # 设置目标图像的信息
+    # 设置目标图像的信�?    
     resampler.SetSize(target_Size)		# 目标图像大小
     resampler.SetOutputOrigin(target_origin)
     resampler.SetOutputDirection(target_direction)
@@ -111,9 +91,10 @@ def resize_image_itk(ori_img, target_Size, target_Spacing, resamplemethod=sitk.s
     resampler.SetTransform(sitk.Transform(3, sitk.sitkIdentity))    
     resampler.SetInterpolator(resamplemethod)
     itk_img_resampled = resampler.Execute(ori_img)  # 得到重新采样后的图像
+
     return itk_img_resampled
 
-def center_crop_thick(image, coord, size, padtype=0, padvalue=0):
+def center_crop(image, coord, size, padtype=0, padvalue=0):
     """
     crop a sub-volume centered at voxel.
     :param image:       an image3d object
@@ -128,23 +109,30 @@ def center_crop_thick(image, coord, size, padtype=0, padvalue=0):
     assert padtype in [0, 1], 'padtype not support'
     coord = np.array(coord, dtype=np.int32)
     data = sitk.GetArrayFromImage(image)
-    slice_data = data[coord[2],:,:]
-    xy_size = slice_data.shape
+    #slice_data = data[coord[2],:,:]
+    data_size = data.shape
     new_center = np.array([coord[2],coord[1],coord[0]], dtype=np.int32)
     if padtype == 0:
         pad_mode = 'constant'
     else:
         pad_mode = 'edge'
+        
 
-    pad_slice_data = np.pad(slice_data, 
-                            ((max(0, int(size[0]//2-new_center[0])), max(int(size[0]//2+size[0]%2+new_center[0]-xy_size[0]), 0)),
-                            (max(0, int(size[1]//2-new_center[1])), max(int(size[1]//2+size[1]%2+new_center[1]-xy_size[1]), 0))),
-                            mode = pad_mode,
-                            constant_values = (padvalue, padvalue)
-                            )
-    new_center_pad = [new_center[0]+max(0, int(size[0]//2-new_center[0])), new_center[1]+max(0, int(size[1]//2-new_center[1]))]
+    pad_data = np.pad(data, 
+                      ((max(0, int(size[0]//2-new_center[0])), max(int(size[0]//2+size[0]%2+new_center[0]-data_size[0]), 0)),
+                       (max(0, int(size[1]//2-new_center[1])), max(int(size[1]//2+size[1]%2+new_center[1]-data_size[1]), 0)),
+                       (max(0, int(size[2]//2-new_center[2])), max(int(size[2]//2+size[2]%2+new_center[2]-data_size[2]), 0))
+                       
+                      ),
+                      mode = pad_mode,
+                      constant_values = (padvalue, padvalue)
+                      )
+    new_center_pad = [new_center[0]+max(0, int(size[0]//2-new_center[0])), new_center[1]+max(0, int(size[1]//2-new_center[1])), new_center[2]+max(0, int(size[2]//2-new_center[2]))]
     
-    crop_data = pad_slice_data[-size[0]//2+new_center_pad[0]:size[0]//2+size[0]%2+new_center_pad[0],-size[1]//2+new_center_pad[1]:size[1]//2+size[1]%2+new_center_pad[1]]
+    crop_data = pad_data[-size[0]//2+new_center_pad[0]:size[0]//2+size[0]%2+new_center_pad[0],
+                         -size[1]//2+new_center_pad[1]:size[1]//2+size[1]%2+new_center_pad[1],
+                         -size[2]//2+new_center_pad[2]:size[2]//2+size[2]%2+new_center_pad[2]]
+
     return crop_data
 
 
@@ -181,11 +169,11 @@ class SegmentationDataset(Dataset):
 
         self.crop_size = np.array(crop_size, dtype=np.int32)
 
-        assert sampling_method in ('GLOBAL', 'MASK', 'CENTER', 'MIX'), 'sampling_method must either be GLOBAL or MASK'
+        assert sampling_method in ('GLOBAL', 'MASK', 'CENTER', 'MIX', 'RANDOM'), 'sampling_method must either be GLOBAL or MASK or CENTER or MIX or RANDOM'
         self.sampling_method = sampling_method
 
         self.random_translation = np.array(random_translation, dtype=np.double)
-        assert self.random_translation.size == 2, 'Only 2-element of random translation is supported'
+        assert self.random_translation.size == 3, 'Only 3-element of random translation is supported'
 
         assert interpolation in ('LINEAR', 'NN'), 'interpolation must either be a LINEAR or NN'
         self.interpolation = interpolation
@@ -211,8 +199,8 @@ class SegmentationDataset(Dataset):
     def mask_sample(self, seg):
         data = sitk.GetArrayFromImage(seg)
         center_list = (data!=0).nonzero()
-        idx = random.choice(range(len(center_list[0])))
         if len(center_list[0]) > 0:
+            idx = random.choice(range(len(center_list[0])))
             center = [center_list[2][idx], center_list[1][idx], center_list[0][idx]]
         else:
             center = self.global_sample(seg)
@@ -225,29 +213,30 @@ class SegmentationDataset(Dataset):
             if im_size[i] > self.crop_size[i]:
                 sp[i] = np.random.uniform(self.crop_size[i] / 2, im_size[i] - self.crop_size[i] / 2)
             else:
-                sp[i] = self.crop_size[i]
+                sp[i] = np.random.uniform(0, im_size[i])
         center = np.rint(sp)
         return center
 
     def center_sample(self, seg):
-        im_size = np.array(seg.GetSize()
+        im_size = np.array(seg.GetSize())
         return np.rint(im_size / 2)
 
     def generate_center(self, seg, method):
-        if method == 'MASK':
+        seed = np.random.choice([0,1,2,3],size=1,p=[0.25,0.25,0.25,0.25])[0]
+        if method == 'MASK' or (method == 'RANDOM' and seed==0):
             center = self.mask_sample(seg)
             return center
-        if method == 'GLOBAL':
+        if method == 'GLOBAL' or (method == 'RANDOM' and seed==1):
             center = self.global_sample(seg)
             return center
-        if method == 'CENTER':
+        if method == 'CENTER' or (method == 'RANDOM' and seed==2):
             center = self.center_sample(seg)
             return center
-        if method == 'MIX':
+        if method == 'MIX' or (method == 'RANDOM' and seed==3):
             slice_center = self.mask_sample(seg)[2]
             center = self.global_sample(seg)[:2]
             center = np.append(center, slice_center)
-            return center
+            return center            
 
     def __getitem__(self, index):
 
@@ -274,13 +263,15 @@ class SegmentationDataset(Dataset):
         for idx in range(len(images)):
             if self.crop_normalizers[idx] is not None:
                 if self.crop_normalizers[idx]['modality'] == 'CT':
-                    norm_data = fix_normalizers(sitk.GetArrayFromImage(images[idx]), float(self.crop_normalizers[idx]['mean']), float(self.crop_normalizers[idx]['stddev']))
+                    normalizer = Fix_normalizer(float(self.crop_normalizers[idx]['mean']), float(self.crop_normalizers[idx]['stddev']), self.crop_normalizers[idx]['clip'])
+                    norm_data = normalizer(sitk.GetArrayFromImage(images[idx]))
                     image = sitk.GetImageFromArray(norm_data)
                     image.SetOrigin(ori_origin)
                     image.SetSpacing(ori_spacing)
                     image.SetDirection(ori_direction)
                 elif self.crop_normalizers[idx]['modality'] == 'MR':
-                    norm_data = adaptive_normalizers(sitk.GetArrayFromImage(images[idx]), float(self.crop_normalizers[idx]['min_p']), float(self.crop_normalizers[idx]['max_p']))          
+                    normalizer = Adaptive_normalizer(float(self.crop_normalizers[idx]['min_p']), float(self.crop_normalizers[idx]['max_p']), self.crop_normalizers[idx]['clip'])
+                    norm_data = normalizer(sitk.GetArrayFromImage(images[idx]))         
                     image = sitk.GetImageFromArray(norm_data)
                     image.SetOrigin(ori_origin)
                     image.SetSpacing(ori_spacing)
@@ -297,19 +288,19 @@ class SegmentationDataset(Dataset):
         seg = resize_image_itk(seg, output_shape.tolist(), spacing.tolist())
         
         center = self.generate_center(seg, sampling_method)
-        voxel_translation = self.random_translation / ori_spacing[:2]
-        trans = np.random.uniform(-voxel_translation, voxel_translation, size=[2]).astype(np.int16)
-        trans = np.append(trans, 0)
+        voxel_translation = self.random_translation / ori_spacing[:3]
+        trans = np.random.uniform(-voxel_translation, voxel_translation, size=[3]).astype(np.int16)
+        #trans = np.append(trans, 0)
         center += trans
         #center = seg.world_to_voxel(center).astype(np.int16)
 
         for idx in range(len(images)):
-            images[idx] = center_crop_thick(images[idx], center, self.crop_size, padvalue=self.default_values[idx])
+            images[idx] = center_crop(images[idx], center, self.crop_size, padvalue=self.default_values[idx])
 
-        seg = center_crop_thick(seg, center, self.crop_size, padvalue=0)   
+        seg = center_crop(seg, center, self.crop_size, padvalue=0)   
 
         axis = random.choice([0, 1, 2, 3, 4, 5])
-        if axis in [0, 1]:
+        if axis in [0, 1, 2]:
             for idx in range(len(images)):
                 images[idx] = np.flip(images[idx], axis)
 

@@ -11,10 +11,63 @@ from easydict import EasyDict as edict
 import torch
 import torch.nn as nn
 from utils.tools import read_test_txt, read_test_csv, read_test_folder
+from utils.SegModel import *
 from utils.dataset import fix_normalizers, adaptive_normalizers, resize_image_itk
 import SimpleITK as sitk
 import copy
+import subprocess
 
+
+class use_gpu(object):
+    """ switch to a gpu for computation """
+    def __init__(self, gpu_id):
+        self.gpu_id = gpu_id
+
+    def __enter__(self):
+        os.environ['CUDA_VISIBLE_DEVICES'] = '{}'.format(self.gpu_id)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        del os.environ['CUDA_VISIBLE_DEVICES']
+
+def get_gpu_memory(gpu_id):
+    """Get the gpu memory usage.
+
+    :param gpu_id the gpu id
+    :return the gpu memory used
+    """
+    result = subprocess.check_output(
+        [
+            'nvidia-smi', '--query-gpu=memory.used',
+            '--format=csv,nounits,noheader'
+        ])
+
+    # convert lines into a dictionary
+    gpu_memory = [int(x) for x in result.decode().strip().split('\n')]
+    gpu_memory_dict = dict(list(zip(list(range(len(gpu_memory))), gpu_memory)))
+
+    return gpu_memory_dict[gpu_id]
+
+
+
+def load_model(folder, gpu_id=0):
+    """ load segmentation model from folder
+        :param folder:          the folder that contains segmentation model
+        :param gpu_id:          which gpu to run segmentation model
+        :return: a segmentation model
+        """
+    model = edict()
+
+    # record the starting GPU memory
+    model.start_memory = get_gpu_memory(gpu_id)
+
+    with use_gpu(gpu_id):
+        model['net'] = VSegModel()
+        model['net'].load(folder) #os.path.join(folder, model_name))
+        model.num_labels = model['net'].out_channels
+        
+        model.gpu_id = gpu_id
+
+    return model
 
 def prepare_image_fixed_spacing(images, model):
     ori_spacing = images[0].GetSpacing()
@@ -34,9 +87,9 @@ def prepare_image_fixed_spacing(images, model):
     resample_images = []
     iso_images = []
     for idx, image in enumerate(images):
-        ret, params = model.crop_normalizers[idx]
-        params['image'] = sitk.GetArrayFromImage(image)
-        norm_data = ret(**params)
+        ret = model.crop_normalizers[idx]
+        data = sitk.GetArrayFromImage(image)
+        norm_data = ret(data)
 
         image_origin =  image.GetOrigin()
         image_spacing = image.GetSpacing()
@@ -65,13 +118,15 @@ def prepare_image_fixed_spacing(images, model):
 def network_output(iso_batch, model, pre_image, resample_image):
     probs=[]
     with torch.no_grad():
-        prob = model(iso_batch)
+        prob = model.net(iso_batch)
 
     _, mask = prob.max(1)
     mask = mask.short()
 
-    mask = np.array((mask.data.cpu()))
-    prob_map = np.array((prob[:, 1].data.cpu()))
+    #from IPython import embed
+    #embed()
+    mask = np.array((mask[0].data.cpu()),dtype=np.uint8)
+    prob_map = np.array((prob[0, 1].data.cpu()),dtype=np.float32)
 
     ori_origin =  resample_image.GetOrigin()
     ori_spacing = resample_image.GetSpacing()
@@ -98,7 +153,7 @@ def network_output(iso_batch, model, pre_image, resample_image):
 
 def test(input_path, model_path, output_folder, seg_name='seg.mha', gpu_id=0, save_image=True, save_single_prob=True):
     total_test_time = 0
-    model = torch.load(model_path)
+    model = load_model(model_path)
 
     suffix = ['.mhd', '.nii', '.hdr', '.nii.gz', '.mha', '.image3d']
     if os.path.isfile(input_path):
@@ -116,7 +171,7 @@ def test(input_path, model_path, output_folder, seg_name='seg.mha', gpu_id=0, sa
         raise ValueError('Input path do not exist!')
 
     success_cases = 0
-    model_name = os.path.basename(model_path)
+    model_name = 'net'
     model_in_channels = model.__dict__[model_name].in_channels
     for i, file in enumerate(file_list):
         print('{}: {}'.format(i, file))
@@ -177,10 +232,10 @@ def main():
     parser = argparse.ArgumentParser(description=long_description,
                                      formatter_class=RawTextHelpFormatter)
 
-    parser.add_argument('-i', '--input', type=str, help='input folder/file for intensity images', default='/data/qingzhou/whm/vseg_test.csv')
-    parser.add_argument('-m', '--model', type=str, help='pth model path', default='/data/qingzhou/whm/wmh_2d_4.pth')
-    parser.add_argument('-o', '--output', type=str, help='output folder for segmentation', default='/data/qingzhou/whm/wmh_2d/predicts')
-    parser.add_argument('-n', '--seg_name', default='seg2.nii.gz', help='the name of the segmentation result to be saved')
+    parser.add_argument('-i', '--input', type=str, help='input folder/file for intensity images', default="/data/qingzhou/RTP-Net-main/test.csv")
+    parser.add_argument('-m', '--model', type=str, help='pth model path')
+    parser.add_argument('-o', '--output', type=str, help='output folder for segmentation')
+    parser.add_argument('-n', '--seg_name', default='seg.nii.gz', help='the name of the segmentation result to be saved')
     parser.add_argument('-g', '--gpu_id', default='5', help='the gpu id to run model')
     parser.add_argument('--save_image', help='whether to save original image', action="store_true")
     parser.add_argument('--save_single_prob', help='whether to save single prob map', action="store_true")

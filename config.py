@@ -15,10 +15,10 @@ __C.general = {}
 # image-segmentation pair list
 # 1) single-modality image training, use txt annotation file
 # 2) multi-modality image training, use csv annotation file
-__C.general.imseg_list = "data_train2.csv"
+__C.general.imseg_list = "train.csv"
 
 # the output of training models and logs
-__C.general.save_dir = 'model'
+__C.general.save_dir = 'ctv_model'
 
 # continue training from certain epoch, -1 to train from scratch
 __C.general.resume_epoch = -1
@@ -43,17 +43,17 @@ __C.dataset = {}
 __C.dataset.num_classes = 2
 
 # the resolution on which segmentation is performed
-__C.dataset.spacing = [0.5, 0.5]
+__C.dataset.spacing = [5, 5, 5]
 
 # the sampling crop size, e.g., determine the context information
-__C.dataset.crop_size = [256, 256]
+__C.dataset.crop_size = [96, 96, 96]
 
 
 # the re-sample padding type (0 for zero-padding, 1 for edge-padding)
 __C.dataset.pad_t = 0
 
 # the default padding value list
-__C.dataset.default_values = [-1]
+__C.dataset.default_values = [-1024]
 
 # sampling method:
 # 1) GLOBAL: sampling crops randomly in the entire image domain
@@ -64,7 +64,7 @@ __C.dataset.default_values = [-1]
 __C.dataset.sampling_method = 'RANDOM'
 
 # translation augmentation (unit: mm)
-__C.dataset.random_translation = [5, 5]
+__C.dataset.random_translation = [5, 5, 5]
 
 # interpolation method:
 # 1) NN: nearest neighbor interpolation
@@ -75,7 +75,8 @@ __C.dataset.interpolation = 'NN'
 # one normalizer corresponds to one input modality
 # 1) FixedNormalizer: use fixed mean and standard deviation to normalize intensity
 # 2) AdaptiveNormalizer: use minimum and maximum intensity of crop to normalize intensity
-__C.dataset.crop_normalizers = [{'modality':'MR','min_p':0.01,'max_p':0.9999}]
+#__C.dataset.crop_normalizers = [{'modality':'MR','min_p':0.01,'max_p':0.9999}]
+__C.dataset.crop_normalizers = [{'modality':'CT', 'mean':40, 'stddev':350, 'clip':True}]
 
 
 ####################################
@@ -130,10 +131,10 @@ __C.train = {}
 __C.train.epochs = 4001
 
 # the number of samples in a batch
-__C.train.batchsize = 64
+__C.train.batchsize = 8
 
 # the number of threads for IO
-__C.train.num_threads = 16
+__C.train.num_threads = 0
 
 # the learning rate
 __C.train.lr = 1e-4
@@ -142,7 +143,7 @@ __C.train.lr = 1e-4
 ##### ���� Step            ���� step_size, gamma, last_epoch
 ##### ���� MultiStep       ���� milestones, gamma, last_epoch
 ##### ���� Exponential     ���� gamma, last_epoch
-##### last_epoch���û�����û�������Ϊ-1��last_epoch��������Ϊ__C.general.resume_epoch
+##### last_epoch���û�����û��������?1��last_epoch��������Ϊ__C.general.resume_epoch
 ##### �������кܶ࣬�Լ�pytorch��ѯ
 __C.train.lr_scheduler = {}
 __C.train.lr_scheduler.name = "Step"
@@ -159,16 +160,8 @@ __C.train.optimizer.params = {"betas": (0.9, 0.999), "eps": 1e-8, "weight_decay"
 __C.train.plot_snapshot = 10
 
 # the number of batches to save model
-__C.train.save_epochs = 100
+__C.train.save_epochs = 1
 
 
-########################################
-# debug parameters
-########################################
-
-__C.debug = {}
-
-# whether to save input crops
-__C.debug.save_inputs = True
 
 

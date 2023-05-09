@@ -1,5 +1,6 @@
 import io
 import torch
+import numpy as np
 from Crypto.Cipher import AES
 import base64
 import random
@@ -7,6 +8,7 @@ import codecs
 import os
 import glob
 import csv
+import easydict
 from torch.utils.data.sampler import Sampler
 
 
@@ -141,3 +143,130 @@ def read_test_folder(folder_path):
         name_list.append(im_name)
 
     return file_list, name_list
+
+
+class Crypto(object):
+    """Crypto provide bytes encrypt and decrypt function which mixes AES and base64."""
+    def __init__(self, key=None):
+        """
+        :param key: password
+        """
+        if key is None:
+            key = "*c!q9Kj*k?2>+5@p"
+        assert len(key) == 16
+        self.key = key
+        self.mode = AES.MODE_CFB
+
+    def bytes_encrypt(self, plain_text):
+        """
+        :param plain_text:
+        :return: cipher_text(bytes)
+        """
+        assert isinstance(plain_text, bytes)
+
+        length = 16
+        plain_text = plain_text + b'\1'
+        count = len(plain_text)
+        add = length - (count % length)
+        plain_text = plain_text + (b'\0' * add)
+
+        aes_handle = AES.new(self.key, self.mode, self.key)
+        cipher_text = base64.b64encode(aes_handle.encrypt(plain_text))
+
+        return cipher_text
+
+    def bytes_decrypt(self, cipher_text):
+        """
+        :param cipher_text:
+        :return: plaintext(bytes)
+        """
+        assert isinstance(cipher_text, bytes)
+
+        aes_handle = AES.new(self.key, self.mode, self.key)
+        plain_text = aes_handle.decrypt(base64.b64decode(cipher_text))
+        
+        return plain_text.rstrip(b'\0')[0:-1]
+        
+
+def load_pytorch_model(path):
+    """
+    :param path: model path
+    :return: model params
+    """
+    with open(path, "rb") as fid:
+        buffer = io.BytesIO(fid.read())
+        buffer_value = buffer.getvalue()
+
+        if buffer_value[0:9] == b"uAI_model":
+            crypto_handle = Crypto()
+            decrypt_buffer = io.BytesIO(crypto_handle.bytes_decrypt(buffer_value[128::]))
+        else:
+            decrypt_buffer = buffer
+    params = torch.load(decrypt_buffer)
+    return params
+      
+    
+def save_pytorch_model(params, save_path, is_encrypt=True):
+    """
+    :param params: model params
+    :param save_path: model save path
+    :param is_encrypt: encrypt or not
+    :return: None
+    """
+    if not is_encrypt:
+        torch.save(params, save_path)
+        return
+
+    buffer = io.BytesIO()
+    torch.save(params, buffer)
+    tag = b"uAI_model"
+    tag = tag + b'\0'*(128 - len(tag))
+
+    crypto_handle = Crypto()
+    encrypt_buffer = tag + crypto_handle.bytes_encrypt(buffer.getvalue())
+
+    with open(save_path, "wb") as fid:
+        fid.write(encrypt_buffer)
+
+
+def fix_normalizers(image, mean, stddev, clip=True):
+    data = image
+    if clip:
+        return np.clip((data - mean) / (stddev + 1e-8) , -1, 1).astype(np.float32)
+    else:
+        return ((data - mean) / (stddev + 1e-8)).astype(np.float32)
+
+def adaptive_normalizers(image, min_p, max_p, clip=True):
+    data = image
+    upper = np.percentile(data, max_p*100)
+    lower = np.percentile(data, min_p*100)
+    mean = (lower + upper) / 2.0
+    stddev = abs((upper - lower)) / 2.0
+    if clip:
+        return np.clip((image - mean) / (stddev + 1e-8), -1, 1).astype(np.float32)
+    else:
+        return (image - mean) / (stddev + 1e-8).astype(np.float32)
+        
+        
+def normalization_to_dict(crop_normalizers):
+    assert type(crop_normalizers) == easydict.EasyDict
+    norm_dict={}
+    if crop_normalizers['modality'] == 'CT':
+        norm_dict['type']=0
+        norm_dict['mean']=float(crop_normalizers['mean'])
+        norm_dict['stddev']=float(crop_normalizers['stddev'])
+        if crop_normalizers.get('clip'):
+            norm_dict['clip']=crop_normalizers['clip']
+        else:
+            norm_dict['clip']=True
+    elif crop_normalizers['modality'] == 'MR':
+        norm_dict['type']=1
+        norm_dict['min_p']=float(crop_normalizers['min_p'])
+        norm_dict['max_p']=float(crop_normalizers['max_p'])
+        if crop_normalizers.get('clip'):
+            norm_dict['clip']=crop_normalizers['clip']
+        else:
+            norm_dict['clip']=True
+    return norm_dict
+    
+    

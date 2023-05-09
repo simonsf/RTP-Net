@@ -15,7 +15,7 @@ from torch.backends import cudnn
 from torch.utils.data import DataLoader
 import matplotlib
 import matplotlib.pyplot as plt
-from utils.tools import  EpochConcateSampler
+from utils.tools import  *
 from utils.dataset import SegmentationDataset
 from network.vbnet import SegmentationNet, vnet_kaiming_init, vnet_focal_init
 
@@ -54,26 +54,6 @@ def load_module_from_disk(pyfile):
     os.sys.path.pop(0)
 
     return lib
-
-def normalization_to_dict(crop_normalizers):
-    assert type(crop_normalizers) == easydict.EasyDict
-    norm_dict={}
-    if crop_normalizers['modality'] == 'CT':
-        norm_dict['type']=0
-        norm_dict['mean']=float(crop_normalizers['mean'])
-        norm_dict['stddev']=float(crop_normalizers['stddev'])
-        if crop_normalizers.get('clip'):
-            norm_dict['clip']=crop_normalizers['clip']
-        else:
-            norm_dict['clip']=True
-    elif crop_normalizers['modality'] == 'MR':
-        norm_dict['type']=1
-        norm_dict['min_p']=float(crop_normalizers['min_p'])
-        norm_dict['max_p']=float(crop_normalizers['max_p'])
-        if crop_normalizers.get('clip'):
-            norm_dict['clip']=crop_normalizers['clip']
-        else:
-            norm_dict['clip']=True
 
 
 def save_checkpoint(net, opt, epoch_idx, batch_idx, cfg, config_file, max_stride, num_modality):
@@ -115,10 +95,6 @@ def save_checkpoint(net, opt, epoch_idx, batch_idx, cfg, config_file, max_stride
     # save python optimizer state
     save_pytorch_model(opt.state_dict(), opt_filename)
 
-    # save template parameter ini file
-    ini_file = os.path.join(os.path.dirname(__file__), 'config', 'params.ini')
-    shutil.copy(ini_file, os.path.join(cfg.general.save_dir, 'params.ini'))
-
     # copy config file
     shutil.copy(config_file, os.path.join(chk_folder, 'config.py'))
 
@@ -147,7 +123,7 @@ def load_checkpoint(epoch_idx, net, opt, save_dir):
     opt.load_state_dict(opt_state)
 
     return state['epoch'], state['batch']
-
+    
 
 def plot_progress(cfg, batch_idx, all_tr_losses):
     """
@@ -254,7 +230,7 @@ def train(config_file, msg_queue=None):
 
     net_module = importlib.import_module('network.' + cfg.net.name)
     net = net_module.SegmentationNet(dataset.num_modality(), cfg.dataset.num_classes)
-    max_stride = [16, 16]
+    max_stride = [16, 16, 16]
     vnet_kaiming_init(net)
     net = nn.parallel.DataParallel(net, device_ids=gpu_ids)
     net = net.cuda()
@@ -347,7 +323,7 @@ def train(config_file, msg_queue=None):
 
         if epoch_idx != 0 and (epoch_idx % cfg.train.save_epochs == 0):
             if last_save_epoch != epoch_idx:
-                torch.save(net, os.path.join(cfg.general.save_dir, 'checkpoints', 'chk_{}'.format(epoch_idx)))
+                save_checkpoint(net, opt, epoch_idx, batch_idx, cfg, config_file, max_stride, dataset.num_modality())
                 last_save_epoch = epoch_idx
 
 
