@@ -4,8 +4,13 @@ RTP-Net (v1.1)
 
 Release notes
 
-v1.1 Updated the test.py, uploaded the csv examples for train and test, and changed functions in utils accordingly. 
-v1.0 Orignial version.
+v1.1 
+
+Updated the test.py, uploaded the csv examples for train and test, and changed functions in utils accordingly. 
+
+v1.0 
+
+Orignial version.
 
 Introduction
 
